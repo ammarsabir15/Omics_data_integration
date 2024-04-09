@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # Loading input files
 ```{r cars}
 library(rio) 
-path <- "/mnt/acri4_1/acheema/geo_mx_analysis/Initial_Dataset_Maha.xlsx"
+path <- "Initial_Dataset_Maha.xlsx"
 spatial_data <- import_list(path)  
 
 

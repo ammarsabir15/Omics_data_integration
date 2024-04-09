@@ -25,11 +25,11 @@ library(sva)
 
 # reading input files
 ```{r}
-design_table <- read.table ("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/derfinder_prostate/designv4.txt",header = T, row.names=1)
+design_table <- read.table ("designv4.txt",header = T, row.names=1)
 
 head(design_table)
 
-derf_output <- read.table("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/derfinder_prostate/Differential_expressed.v3.3.tab", header=T)
+derf_output <- read.table("Differential_expressed.v3.3.tab", header=T)
 
 colnames(derf_output)
 
@@ -187,7 +187,7 @@ print(p)
 #batch <- c(design_table$batch)
 
 # loading the data
-load("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/EXCERPT_PIPELINE/excerpt_out/exceRpt_smallRNAQuants_ReadCounts.RData")
+load("exceRpt_smallRNAQuants_ReadCounts.RData")
 total <- as.data.frame(rbind(exprs.miRNA,exprs.tRNA,exprs.piRNA,exprs.gencode))
 
 
@@ -271,7 +271,7 @@ design_table <- read.csv("design_template_prostate_v2.csv",sep=",",header = T,ro
 
 
 # loading the data
-load("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/EXCERPT_PIPELINE/excerpt_out/exceRpt_smallRNAQuants_ReadCounts.RData")
+load("exceRpt_smallRNAQuants_ReadCounts.RData")
 total <- as.data.frame(rbind(exprs.miRNA,exprs.tRNA,exprs.piRNA,exprs.gencode))
 # adding values to the count matrix
 
@@ -446,7 +446,7 @@ results <- cbind(results, ncnts)
 # differential gene expression for NCCN risk levels (low vs intermediate)
 ```{r}
 
-load("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/EXCERPT_PIPELINE/excerpt_out/exceRpt_smallRNAQuants_ReadCounts.RData")
+load("exceRpt_smallRNAQuants_ReadCounts.RData")
 total <- as.data.frame(rbind(exprs.miRNA,exprs.tRNA,exprs.piRNA,exprs.gencode))
 # adding values to the count matrix
 
@@ -521,7 +521,7 @@ results <- cbind(results, ncnts)
 
 
 
-load("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/EXCERPT_PIPELINE/excerpt_out/exceRpt_smallRNAQuants_ReadCounts.RData")
+load("exceRpt_smallRNAQuants_ReadCounts.RData")
 total <- as.data.frame(rbind(exprs.miRNA,exprs.tRNA,exprs.piRNA,exprs.gencode))
 # adding values to the count matrix
 

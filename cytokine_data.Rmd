@@ -1,0 +1,635 @@
+---
+title: "Cytokine_data_analysis_Report"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    theme: united
+date: "2023-12-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Loading packages
+```{r}
+
+library(ggplot2)
+library(patchwork)
+library(gridExtra)
+library(cowplot)
+
+
+```
+
+# Reading input files
+
+```{r cars}
+
+cytokine_whole_df <- read.table("Patient Data_Clustering_final.csv", sep=",", header=T)
+
+head(cytokine_whole_df)
+```
+
+## Splitting data based on batches
+
+Since the data was generated in different batches so the first thing would be to look for is batch effects.
+
+```{r pressure}
+
+# Adding "batch" to the first column of the cytokine_whole_df
+cytokine_whole_df$BATCH <- paste("batch",cytokine_whole_df$BATCH,sep = "")
+
+# Splitting the data based on different batches
+splitted_df_list <- split(cytokine_whole_df, with(cytokine_whole_df, BATCH), drop = TRUE)
+
+class(splitted_df_list)
+
+# saving the data for batch_1 and batch_2 into cytokine_df_b1 and cytokine_df_b2
+cytokine_df_b1 <- as.data.frame(splitted_df_list$batch1) 
+cytokine_df_b2 <- as.data.frame(splitted_df_list$batch2)
+
+
+```
+
+# Removing batch effects
+## function for making multiple plots
+
+```{r plots}
+
+create_density_plot <- function(df1,df2,column_name) {
+   ggplot() +
+    geom_density(data = df1, aes(x = .data[[column_name]], fill = "batch1"), alpha = 0.5) +
+    geom_density(data = df2, aes(x = .data[[column_name]], fill = "batch2"), alpha = 0.5) +
+    #labs(title = paste(column_name)) +
+    #labs(fill = "Batch Name") 
+    theme(legend.position="none") # Set the legend title
+
+}
+
+# Columns you want to compare
+columns_to_compare <- c(colnames(cytokine_df_b1[,10:32]))
+
+# Apply the function to each column
+plt_before_scaling <- lapply(columns_to_compare, function(column) create_density_plot(cytokine_df_b1, cytokine_df_b2, column))
+```
+
+## normalizing/Scaling datasets to remove batch effects
+```{r}
+
+cytokine_df_b1[,10:32] <- as.data.frame(scale(cytokine_df_b1[,10:32]))
+cytokine_df_b2[,10:32] <- as.data.frame(scale(cytokine_df_b2[,10:32]))
+
+
+plt_after_scaling <- lapply(columns_to_compare, function(column) create_density_plot(cytokine_df_b1, cytokine_df_b2, column))
+```
+
+## The red color is batch 1 and blue color batch 2. The plots on left are shown before scaling/normalization and vice versa for the plots on the right
+
+```{r}
+
+
+
+n_plots <- length(plt_before_scaling)
+
+# Create a new list of plots with added space between them
+plots_with_space <- lapply(seq_len(n_plots), function(i) {
+  grid.arrange(
+    plt_before_scaling[[i]],
+    plt_after_scaling[[i]],
+    ncol = 2,
+    widths = c(1, 1.5)  # Adjust the width of the second plot to add space
+  )
+})
+
+# Arrange the new plots vertically
+#grid.arrange(grobs = plots_with_space, ncol = 1)
+
+
+
+```
+
+
+
+# Combining the dataset after scaling and removing CCL7, CXCL1, CXCL11, GM.CSF, IL8, IL15, IL23, IL10 because of the all having same values
+
+```{r}
+
+combined_df <- rbind(cytokine_df_b1, cytokine_df_b2)
+
+dim(combined_df)
+class(combined_df)
+head(combined_df)
+
+
+# removing "CCL7", "CXCL1", "CXCL11", "GM.CSF", "IL8", "IL15", "IL23", "IL10"
+combined_df <- combined_df[, !(names(combined_df) %in% c("CCL7", "CXCL1", "CXCL11", "GM.CSF", "IL8", "IL15", "IL23", "IL10"))]
+
+dim(combined_df)
+class(combined_df)
+head(combined_df)
+
+
+# changing column names for treatment and KRAS mutation
+colnames(combined_df)[8:9] <- c("treatment","KRAS_mutation")
+
+
+# setting clinical.ID in the dataframe as the row names or the sample name for the dataframe
+row.names(combined_df) <- combined_df$Clinical.ID
+combined_df <- combined_df[,-2]
+
+colnames(combined_df)
+rownames(combined_df)
+```
+
+
+
+# kmeans clustering and UMAP Visualization 
+
+
+## Loading required packages
+```{r}
+library(FactoMineR)
+library(stats)
+library(umap)
+library(factoextra)
+library(RColorBrewer)
+library(purrr)
+```
+
+## Performing PCA
+```{r}
+# Process the dataset
+columns_for_pca <- combined_df[,9:23]
+
+dim(columns_for_pca)
+
+columns_for_pca <- na.omit(columns_for_pca)
+
+dim(columns_for_pca)
+
+# Step 1: PCA
+pca_result <- PCA(columns_for_pca, scale.unit = FALSE, graph = FALSE, ncp = 5)
+
+# Scree_plot
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 50))
+
+```
+
+## selecting the appropriate number of clusters 
+```{r}
+# Determine the number of clusters using fb_nviz
+fviz_nbclust(pca_result$ind$coord, kmeans, method = "wss")
+
+fviz_contrib(pca_result,
+             choice = "var",
+             axes = 1,
+             top = 10, color = 'darkorange3', barfill  = 'blue4',fill ='blue4')
+```
+
+## top 10 cytokines contributing to PC1 and PC2
+```{r}
+fviz_contrib(pca_result,
+             choice = "var",
+             axes = 2,
+             top = 10, color = 'darkorange3', barfill  = 'blue4',fill ='blue4')
+# Create data frames for plotting
+# Add PCA, kmeans, and UMAP results to combined_df
+
+non_missing_rows <- rownames(columns_for_pca)
+
+# Extract corresponding rows from the original combined_df
+combined_df_no_missing <- combined_df[non_missing_rows, ]
+
+combined_df_no_missing$PCA1 <- pca_result$ind$coord[, 1]
+combined_df_no_missing$PCA2 <- pca_result$ind$coord[, 2]
+
+```
+
+
+
+## Function to perform k-means clustering and create UMAP plot
+
+```{r}
+
+perform_kmeans_umap <- function(df, pca_result, n_pcs) {
+  
+  k_values <- c(2,3, 4, 5)
+  
+  # Generate distinct colors
+  num_colors <- max(k_values)
+  colours <- brewer.pal(num_colors, "Set1")
+  
+  
+     
+  # Perform UMAP
+  umap_result <- umap(pca_result$ind$coord[, 1:n_pcs])
+
+  # Save UMAP coordinates in the dataframe
+  df$UMAP1 <- umap_result$layout[, 1]
+  df$UMAP2 <- umap_result$layout[, 2]
+  
+  # Perform k-means clustering for different values of k using purrr::map
+  umap_plots <- map(k_values, ~{
+    kmeans_result <- kmeans(pca_result$ind$coord[, 1:n_pcs], centers = .x)
+    df[[paste0("Cluster_k", .x)]] <- kmeans_result$cluster
+    
+    ggplot(df, aes(x = UMAP1, y = UMAP2, shape = factor(treatment))) +
+      geom_point(aes(color = factor(df[[paste0("Cluster_k", .x)]])), size = 3) +
+      scale_color_manual(values = colours) +
+      scale_shape_manual(values = c(0, 17)) +
+      labs(title = paste("UMAP Visualization with K-means Clustering (k=", .x, ")"))
+  })
+
+  names(umap_plots) <- paste0("UMAP_k", k_values)
+
+  return(umap_plots)
+}
+
+
+# Example usage: specify the number of principal components and k values
+n_pcs <- 4
+
+
+# Call the function
+umap_results <- perform_kmeans_umap(combined_df_no_missing, pca_result, n_pcs)
+
+```
+
+
+
+
+## kmeans clustering UMAP with 4 PCs
+
+```{r}
+
+# Example usage: specify the number of principal components and k values
+n_pcs <- 4
+
+
+# Call the function
+umap_results <- perform_kmeans_umap(combined_df_no_missing, pca_result, n_pcs)
+
+```
+
+## UMAPS {.tabset}
+
+### UMAP with 2 clusters
+```{r}
+
+umap_results[1]
+write.table(data.frame(umap_results[["UMAP_k2"]]$data),"cytokine_info_file_whole_data_PC4_k2.txt", sep="\t",quote = F)
+
+```
+
+
+### UMAP with 3 clusters
+```{r}
+
+umap_results[2]
+write.table(data.frame(umap_results[["UMAP_k3"]]$data),"cytokine_info_file_whole_data_PC4_k3.txt", sep="\t",quote = F)
+```
+
+
+### UMAP with 4 clusters
+```{r}
+
+umap_results[3]
+
+```
+
+### UMAP with 5 clusters
+```{r}
+
+umap_results[4]
+
+```
+
+{-}
+
+## kmeans clustering UMAP with 2 PCs
+
+```{r}
+
+# Example usage: specify the number of principal components 
+n_pcs <- 2
+
+# Call the function
+umap_results <- perform_kmeans_umap(combined_df_no_missing, pca_result, n_pcs)
+```
+
+
+
+
+
+
+
+## UMAPS {.tabset}
+
+### UMAP with 2 clusters
+```{r}
+
+umap_results[1]
+
+write.table(data.frame(umap_results[["UMAP_k2"]]$data),"cytokine_info_file_whole_data_PC2_k2.txt", sep="\t",quote = F)
+
+table(umap_results$UMAP_k2$data$Cluster_k2)
+```
+
+
+### UMAP with 3 clusters
+```{r}
+
+umap_results[2]
+write.table(data.frame(umap_results[["UMAP_k3"]]$data),"cytokine_info_file_whole_data_PC2_k3.txt", sep="\t",quote = F)
+
+```
+
+
+### UMAP with 4 clusters
+```{r}
+
+umap_results[3]
+
+```
+
+### UMAP with 5 clusters
+```{r}
+
+umap_results[4]
+
+```
+
+{-}
+
+
+# UMAP plots with 2 PCs (and two clusters) for various conditions such as sex, Kras mutation and 
+```{r}
+
+
+# making a dataframe for UMAP with 2 PCs and 2 clusters
+df_k2_pC2 <-  as.data.frame(umap_results[["UMAP_k2"]]$data)
+
+# writing this dataframe into file
+write.table(df_k2_pC2, "cytokine_normalized_data.txt", sep="\t", quote=F)
+
+# making plots for response
+ggplot(df_k2_pC2, aes(x = UMAP1, y = UMAP2, color = factor(Cluster_k2), shape = Response)) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("blue", "red")) +  # Adjust colors as needed 
+  labs(title = "UMAP Plot with Clustering Information")
+
+
+# making plots for Sex
+ggplot(df_k2_pC2, aes(x = UMAP1, y = UMAP2, color = factor(Cluster_k2), shape = Sex)) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("blue", "red")) +  # Adjust colors as needed 
+  labs(title = "UMAP Plot with Clustering Information")
+
+
+# making plots for Kras mutation
+ggplot(df_k2_pC2, aes(x = UMAP1, y = UMAP2, color = factor(Cluster_k2), shape = KRAS_mutation)) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("blue", "red")) +  # Adjust colors as needed 
+  labs(title = "UMAP Plot with Clustering Information")
+
+
+```
+
+
+# Performing the separate analysis for monotherapy and combo therapy
+## Splitting the dataset based on the two treatment options
+```{r}
+
+# the number of monotherapy and combo_therapy in the whole dataframe
+table(combined_df_no_missing$treatment)
+
+monotherapy_df <- combined_df_no_missing[combined_df_no_missing$treatment == "Mono", ]
+combo_therapy_df <- combined_df_no_missing[combined_df_no_missing$treatment == "Combo", ]
+
+dim(monotherapy_df)
+
+
+
+
+
+```
+
+## Analysis for splitted datasets
+```{r}
+
+
+perform_pca_kmeans_umap <- function(df, n_pcs, k_values) {
+  # Process the dataset
+  columns_for_pca <- df[, 9:23]
+  columns_for_pca <- na.omit(columns_for_pca)
+
+  # Step 1: PCA
+  pca_result <- PCA(columns_for_pca, scale.unit = FALSE, graph = FALSE, ncp = n_pcs)
+
+  # Selecting the appropriate number of clusters
+  fviz_nbclust(pca_result$ind$coord, kmeans, method = "wss")
+  
+  
+  print(fviz_contrib(pca_result,
+             choice = "var",
+             axes = 1,
+             top = 10, color = 'darkorange3', barfill  = 'blue4',fill ='blue4'))
+  
+  
+  print(fviz_contrib(pca_result,
+             choice = "var",
+             axes = 2,
+             top = 10, color = 'darkorange3', barfill  = 'blue4',fill ='blue4'))
+  # Create data frames for plotting
+  non_missing_rows <- rownames(columns_for_pca)
+  df_no_missing <- df[non_missing_rows, ]
+
+  # Extract corresponding rows from the original dataframe
+  df_no_missing$PCA1 <- pca_result$ind$coord[, 1]
+  df_no_missing$PCA2 <- pca_result$ind$coord[, 2]
+
+  # Perform k-means clustering and create UMAP plot
+  umap_results <- perform_kmeans_umap(df_no_missing, pca_result, n_pcs, k_values)
+
+  return(umap_results)
+}
+
+# Function to perform k-means clustering and create UMAP plot
+perform_kmeans_umap <- function(df, pca_result, n_pcs, k_values) {
+  # Generate distinct colors
+  num_colors <- max(k_values)
+  colours <- brewer.pal(num_colors, "Set1")
+
+  # Perform UMAP
+  umap_result <- umap(pca_result$ind$coord[, 1:n_pcs])
+
+  # Save UMAP coordinates in the dataframe
+  df$UMAP1 <- umap_result$layout[, 1]
+  df$UMAP2 <- umap_result$layout[, 2]
+
+  # Perform k-means clustering for different values of k using purrr::map
+  umap_plots <- map(k_values, ~{
+    kmeans_result <- kmeans(pca_result$ind$coord[, 1:n_pcs], centers = .x)
+    df[[paste0("Cluster_k", .x)]] <- kmeans_result$cluster
+
+    ggplot(df, aes(x = UMAP1, y = UMAP2, shape = factor(Response))) +
+      geom_point(aes(color = factor(df[[paste0("Cluster_k", .x)]])), size = 3) +
+      scale_color_manual(values = colours) +
+      scale_shape_manual(values = c(0, 17,2)) +
+      labs(title = paste("UMAP Visualization with K-means Clustering (k=", .x, ")"))
+  })
+
+  names(umap_plots) <- paste0("UMAP_k", k_values)
+
+  return(umap_plots)
+}
+
+# Example usage
+n_pcs <- 2
+k_values <- c(2, 3, 4)
+
+
+
+```
+
+### monotherapy analysis results
+### Contributions of top 10 cytokines to PC1 and PC2
+```{r}
+# Perform PCA, k-means clustering, and create UMAP plots for monotherapy
+
+umap_results_monotherapy <- perform_pca_kmeans_umap(monotherapy_df, n_pcs, k_values)
+
+```
+
+### UMAPS {.tabset}
+
+#### with two clusters
+```{r}
+
+umap_results_monotherapy[1]
+write.table(data.frame(umap_results_monotherapy[["UMAP_k2"]]$data),"cytokine_info_file_monotherapy_PC2_k2.txt", sep="\t",quote = F)
+
+```
+
+#### with three clusters
+```{r}
+umap_results_monotherapy[2]
+write.table(data.frame(umap_results_monotherapy[["UMAP_k3"]]$data),"cytokine_info_file_monotherapy_PC2_k3.txt", sep="\t",quote = F)
+```
+
+#### with four clusters
+```{r}
+umap_results_monotherapy[3]
+```
+{-}
+
+### combo_therapy analysis results
+### Contributions of top 10 cytokines to PC1 and PC2 
+```{r}
+# Perform PCA, k-means clustering, and create UMAP plots for combo therapy
+umap_results_combo_therapy <- perform_pca_kmeans_umap(combo_therapy_df, n_pcs, k_values)
+```
+
+### UMAPS {.tabset}
+
+#### with two clusters
+```{r}
+
+umap_results_combo_therapy[1]
+write.table(data.frame(umap_results_combo_therapy[["UMAP_k2"]]$data),"cytokine_info_file_combo_therapy_PC2_k2.txt", sep="\t",quote = F)
+```
+
+#### with three clusters
+```{r}
+umap_results_combo_therapy[2]
+write.table(data.frame(umap_results_combo_therapy[["UMAP_k3"]]$data),"cytokine_info_file_combotherapy_PC2_k3.txt", sep="\t",quote = F)
+
+```
+
+#### with four clusters
+```{r}
+umap_results_combo_therapy[3]
+```
+
+# Performing the separate analysis for males and females
+## Splitting the dataset based on the two treatment options
+```{r}
+
+
+
+male_df <- combined_df_no_missing[combined_df_no_missing$Sex == "M", ]
+female_df <- combined_df_no_missing[combined_df_no_missing$Sex == "F", ]
+
+
+# printing the dimensions of the male dataframe
+dim(male_df)
+
+
+# printing the dimensions of the female dataframe
+dim(female_df)
+
+```
+
+### perform analysis for males
+## top 10 cytokines contributing to PC1 and PC2
+```{r}
+ # changing the number of clusters to 4
+n_pcs <- 4
+umap_results_male <- perform_pca_kmeans_umap(male_df, n_pcs, k_values)
+
+```
+
+
+### UMAPS {.tabset}
+
+#### with two clusters
+```{r}
+umap_results_male[1]
+write.table(data.frame(umap_results_male[["UMAP_k2"]]$data),"cytokine_info_file_male_PC4_k2.txt", sep="\t",quote = F)
+```
+
+#### with three clusters
+```{r}
+umap_results_male[2]
+write.table(data.frame(umap_results_male[["UMAP_k3"]]$data),"cytokine_info_file_male_PC4_k3.txt", sep="\t",quote = F)
+
+```
+
+#### with four clusters
+```{r}
+umap_results_male[3]
+```
+
+
+### perform analysis for females
+## top 10 cytokines contributing to PC1 and PC2
+```{r}
+
+umap_results_female <- perform_pca_kmeans_umap(female_df, n_pcs, k_values)
+
+```
+
+
+
+### UMAPS {.tabset}
+
+#### with two clusters
+```{r}
+umap_results_female[1]
+write.table(data.frame(umap_results_female[["UMAP_k2"]]$data),"cytokine_info_file_female_PC4_k2.txt", sep="\t",quote = F)
+```
+
+#### with three clusters
+```{r}
+umap_results_female[2]
+write.table(data.frame(umap_results_female[["UMAP_k3"]]$data),"cytokine_info_file_female_PC4_k3.txt", sep="\t",quote = F)
+
+```
+
+#### with four clusters
+```{r}
+umap_results_female[3]
+```

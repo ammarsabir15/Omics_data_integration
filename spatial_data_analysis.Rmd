@@ -1,0 +1,404 @@
+---
+title: "Geo_MX Data Analysis"
+output: html_document
+date: "2024-02-28"
+Author: "Ammar Sabir Cheema"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Loading input files
+```{r cars}
+library(rio) 
+path <- "/mnt/acri4_1/acheema/geo_mx_analysis/Initial_Dataset_Maha.xlsx"
+spatial_data <- import_list(path)  
+
+
+sampleAnnoFile <- spatial_data$SegmentProperties
+head(sampleAnnoFile)
+
+
+write.table(sampleAnnoFile,
+             "metadata.txt", 
+              row.names = T, 
+              col.names = T, 
+              quote = F, 
+              sep = '\t')
+
+featureAnnoFile <- spatial_data$BioProbeCountMatrix[, c("TargetName" ,"HUGOSymbol" ,"TargetGroup", "AnalyteType"   ,   "CodeClass") ]
+head(featureAnnoFile)
+
+
+write.table(featureAnnoFile,
+            "genemeta.txt", 
+              row.names = T, 
+              col.names = T, 
+              quote = F, 
+              sep = '\t')
+
+countFile <- spatial_data$BioProbeCountMatrix[, c(3 ,13:108) ]
+head(countFile)
+
+
+write.table(  countFile,
+              "count.txt", 
+              row.names = T, 
+              col.names = T, 
+              quote = F, 
+              sep = '\t')
+```
+
+
+# Analyzing data, loading packages, making spe (summarized experiment object)
+
+```{r pressure}
+library(standR)
+
+
+spe <- readGeoMx(countFile, sampleAnnoFile, featureAnnoFile)
+```
+
+
+# Loading spe to look into its spe
+```{r}
+
+
+spe
+```
+
+# Exploratory Data Anaysis for the spe object using spatialexperiment package
+```{r}
+
+library(SpatialExperiment)
+
+assayNames(spe)
+
+
+assay(spe, "counts")[1:5,1:5]
+
+
+assay(spe, "logcounts")[1:5,1:5]
+```
+
+
+# printing the sample metadata and the gene metadata information for the spe object
+```{r}
+
+head(colData(spe))
+
+head(rowData(spe))
+```
+
+# negavtive probes information
+```{r}
+
+
+metadata(spe)$NegProbes[,1:5]
+
+
+spe@colData$SlideName = spe@colData$ROILabel
+
+```
+
+
+# Import from DGEList object
+```{r}
+
+dge <- edgeR::SE2DGEList(spe)
+
+spe2 <- readGeoMxFromDGE(dge)
+
+spe2
+
+```
+
+# QC Flags
+```{r}
+
+colData(spe)$QCFlags
+
+```
+
+# Quality Controls
+```{r}
+
+library(ggplot2)
+library(ggalluvial)
+
+plotSampleInfo(spe, column2plot = c("SlideName","SegmentLabel"))
+
+
+```
+
+
+# Gene level QC
+```{r}
+dim(spe)
+
+spe <- addPerROIQC(spe, rm_genes = TRUE)
+
+
+dim(spe)
+
+
+metadata(spe) |> names()
+
+```
+
+# plot gene qc
+```{r}
+plotGeneQC(spe, ordannots = "regions", col = regions, point_size = 2)
+
+```
+
+
+# ROI level QC, there is probably a problem because I am getting only one slide name in the results
+
+
+```{r}
+
+plotROIQC(spe, x_threshold = 150, color = SlideName)
+
+
+qc <- colData(spe)$AOINucleiCount > 150
+
+table(qc)
+#FALSE  TRUE 
+#   15    81
+spe <- spe[, qc]
+dim(spe)
+```
+
+
+# threshold based on library size
+```{r}
+
+plotROIQC(spe,  x_axis = "AOISurfaceArea", x_lab = "AreaSize", y_axis = "lib_size", y_lab = "Library size", col = SlideName)
+
+```
+
+# Relative log expression distribution
+```{r}
+
+plotRLExpr(spe)
+
+
+
+plotRLExpr(spe, ordannots = "SlideName", assay = 2, color = SlideName)
+
+
+
+
+
+
+plotRLExpr(spe, ordannots = "SegmentLabel", assay = 2, color = SegmentLabel)
+```
+
+
+# Dimenionsionality Reduction
+```{r}
+
+
+drawPCA(spe, assay = 2, color = SegmentLabel)
+```
+
+
+# calculating the pca using scater to have consistent results
+```{r}
+
+
+set.seed(100)
+
+spe <- scater::runPCA(spe)
+
+pca_results <- reducedDim(spe, "PCA")
+
+drawPCA(spe, precomputed = pca_results, col = SegmentLabel)
+```
+
+# Again getting only one slide name for SlideName
+```{r}
+
+drawPCA(spe, precomputed = pca_results, col = SlideName)
+
+```
+
+
+# making scree plot
+```{r}
+
+plotScreePCA(spe, precomputed = pca_results)
+```
+
+
+# making plot in pairs
+```{r}
+
+
+plotPairPCA(spe, col = SegmentLabel, precomputed = pca_results, n_dimension = 4)
+
+```
+
+
+# again problem with slidename
+```{r}
+
+plotPairPCA(spe, col = SlideName, precomputed = pca_results, n_dimension = 4)
+
+
+
+plotPCAbiplot(spe, n_loadings = 10, precomputed = pca_results, col = SegmentLabel)
+```
+
+
+# making MDS plot
+```{r}
+standR::plotMDS(spe, assay = 2, color = SegmentLabel)
+```
+
+
+# umap
+```{r}
+
+set.seed(100)
+
+spe <- scater::runUMAP(spe, dimred = "PCA")
+
+plotDR(spe, dimred = "UMAP", col = SegmentLabel)
+
+```
+
+
+# Normalization
+```{r}
+spe_tmm <- geomxNorm(spe, method = "TMM")
+```
+
+
+```{r}
+
+plotRLExpr(spe_tmm, assay = 2, color = SlideName) + ggtitle("TMM")
+```
+
+
+```{r}
+
+
+set.seed(100)
+
+spe_tmm <- scater::runPCA(spe_tmm)
+
+pca_results_tmm <- reducedDim(spe_tmm, "PCA")
+
+plotPairPCA(spe_tmm, precomputed = pca_results_tmm, color = SegmentLabel)
+```
+
+# this part is not working, it asks to put rmNegProbe=FALSE, but when I put it FALSE it gives error that rownames are duplicated.  
+```{r}
+
+# library(SpatialDecon)
+# library(SummarizedExperiment)
+# 
+# spe <- readGeoMx(countFile, sampleAnnoFile, featureAnnoFile, rmNegProbe=TRUE)
+# 
+# spe <- addPerROIQC(spe, rm_genes = TRUE)
+# 
+# qc <- colData(spe)$AOINucleiCount > 150
+# 
+# spe <- spe[, qc]
+# 
+# spe_tmm <- geomxNorm(spe, method = "TMM")
+# spd <- prepareSpatialDecon(spe_tmm)
+# 
+# 
+#  names(spd)
+
+```
+
+
+# unsupervised clustering 
+```{r}
+library(factoextra)
+
+table(duplicated(countFile$TargetName))
+							 countFile <- countFile[!duplicated(countFile$TargetName, fromLast = TRUE), ]
+							 countFile$TargetName <- NULL
+							 
+							 
+							 # adding rownames to the dataframe
+							 rownames(countFile) <- countFile$TargetName
+							 
+							 
+							 # take the transpose of the dataframe
+							 countFile <- as.data.frame(t(countFile))
+							
+							# extracting the tissue names from the rownames
+							countFile$tissue_names <- sapply(rownames(countFile), function(x) tail(strsplit(x, "\\|")[[1]], 1))
+							  
+						    # split the dataframe based on tissue names
+							split_dfs <- split(countFile, countFile$tissue_names)
+							
+    					
+							
+							get_top_variable_genes <- function(df) {
+                           variances <- apply(df, 2, var,na.rm=TRUE)  # Calculate variance for each gene across samples
+                           topGenes <- names(sort(variances, decreasing = TRUE))[1:1000]  # Get top 1000 genes by variance
+                           return(topGenes)
+    					   }
+    					   
+    					   
+    					   
+							 # getting the top variable genes for all the tissue types and saving in the list
+						   top_variable_genes_list <- lapply(split_dfs, get_top_variable_genes)
+						   
+						   # printing the head of the list of gene in top_variable_genes_list
+						   lapply(top_variable_genes_list, head, n = 50)
+							
+						   
+                           get_top_variable_genes_df <- function(df, top_genes) {
+                                  return(t(df[,top_genes ]))
+                           }
+                           
+                           
+                           top_variable_genes_df_list <- lapply(seq_along(split_dfs), function(i) {
+                           get_top_variable_genes_df(split_dfs[[i]], top_variable_genes_list[[i]])
+                           })
+
+                           
+                           
+                           
+                           
+                           
+
+							  perform_kmeans <- function(df,max_k = 5) {
+	  # Assuming gene expression data starts from the second column
+	  gene_expr <- df  # Exclude the first column (assuming it's non-gene data)
+	  
+	  
+	  print(fviz_nbclust(gene_expr, kmeans, method = "silhouette", k.max = max_k))  
+	  
+	  # Perform k-means clustering
+	  res.km <- kmeans(scale(gene_expr), 3, nstart = 25)  # You can adjust the number of centers as needed
+	  
+	  # K-means clusters showing the group of each individuals
+	  res.km$cluster
+	  
+	  print(fviz_cluster(res.km, data = gene_expr,
+				 palette = c("#2E9FDF", "#00AFBB", "#E7B800"), 
+				 geom = "point",
+				 ellipse.type = "convex", 
+				 ggtheme = theme_bw()
+				 ))
+	  
+	  return(res.km)
+	}
+
+	# List to store k-means clustering results for each dataframe
+	kmeans_results_list <- lapply(top_variable_genes_df_list, perform_kmeans)
+	
+	
+
+
+```

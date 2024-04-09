@@ -154,9 +154,7 @@ plotGeneQC(spe, ordannots = "regions", col = regions, point_size = 2)
 ```
 
 
-# ROI level QC, there is probably a problem because I am getting only one slide name in the results
-
-
+# ROI level QC
 ```{r}
 
 plotROIQC(spe, x_threshold = 150, color = SlideName)
@@ -242,7 +240,7 @@ plotPairPCA(spe, col = SegmentLabel, precomputed = pca_results, n_dimension = 4)
 ```
 
 
-# again problem with slidename
+# PCA
 ```{r}
 
 plotPairPCA(spe, col = SlideName, precomputed = pca_results, n_dimension = 4)
@@ -280,10 +278,6 @@ spe_tmm <- geomxNorm(spe, method = "TMM")
 ```{r}
 
 plotRLExpr(spe_tmm, assay = 2, color = SlideName) + ggtitle("TMM")
-```
-
-
-```{r}
 
 
 set.seed(100)

@@ -1,0 +1,640 @@
+---
+title: "RNA-seq analysis in R"
+always_allow_html: yes
+output:
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: yes
+    toc_float:
+      toc_collapsed: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r , include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+# loading packages
+
+```{r cars}
+library(ggplot2)
+library(sva)
+```
+
+# reading input files
+```{r}
+design_table <- read.table ("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/derfinder_prostate/designv4.txt",header = T, row.names=1)
+
+head(design_table)
+
+derf_output <- read.table("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/derfinder_prostate/Differential_expressed.v3.3.tab", header=T)
+
+colnames(derf_output)
+
+
+
+# making a new output dataframe with the normalized counts 
+derf_output_df_normalized <- derf_output[56:110]
+
+# removing ".1" from the column names 
+colnames(derf_output_df_normalized ) <- colnames(derf_output)[1:55]
+
+# checking the names after removing ".1" from them
+head(colnames(derf_output_df_normalized),20)
+
+
+tail(colnames(derf_output_df_normalized),20)
+```
+
+
+# doing batch correction for derf_output
+```{r}
+adjusted_derf <- ComBat_seq(as.matrix(derf_output_df_normalized), batch=design_table$batch, group=NULL)
+
+
+# this is  giving a list which has separate values 
+class(adjusted_derf)
+
+head(adjusted_derf)
+
+write.table(adjusted_derf,"adjusted_derf_output.csv",quote = F,sep  =",",col.names = T,row.names = T)
+
+```
+
+
+
+
+
+
+# perform PCA on batch corrected data 
+## To check if batch normalization worked or not
+```{r}
+pca_result <- prcomp(as.matrix(t(adjusted_derf)))
+
+# Get the PCA scores for plotting
+pca_data <- as.data.frame(pca_result$x)
+
+
+# merging the batch information with the pca data
+plot_data <- merge(pca_data[,c(1,2)], design_table[,"group",drop = FALSE], by = 0)
+rownames(plot_data) <- plot_data[,1]
+plot_data <- plot_data[,-1]
+plot_data$batch <- design_table$batch
+
+my_colors <- c("green", "red","blue","orange","black")
+
+
+
+# plotting using ggplot
+p <- ggplot(plot_data, aes(x = PC1, y = PC2, color = group,shape = factor(batch))) +
+    geom_point() +
+    scale_color_manual(values = my_colors) +
+    scale_shape_manual(values = c(0,1,17)) + 
+    theme_bw()
+
+print(p)
+```
+
+# clustering for other categories such as Smoker/non-Smoker, Alcohol (yes/no), HGPIN, NCCN.Risk.Group and site of primary
+```{r}
+
+# reading the new design_matrix
+new_design_matrix <- read.csv("design_matrix.csv", header=T)
+
+rownames(new_design_matrix) <- new_design_matrix$Sample_ID
+
+new_design_matrix <- new_design_matrix[,-1]
+
+new_design_matrix$Alcohol[40] <- "Social"
+
+
+plt_data <- merge(plot_data, new_design_matrix, by = 0)
+
+
+
+p <- ggplot(plt_data, aes(x = PC1, y = PC2, color = factor(Smoker))) +
+    geom_point() +
+    scale_color_manual(values = my_colors) +
+    #scale_shape_manual(values = c(0,1,17,15)) + 
+    theme_bw()
+
+print(p)
+
+
+
+
+p <- ggplot(plt_data, aes(x = PC1, y = PC2, color = factor(Alcohol))) +
+    geom_point() +
+    scale_color_manual(values = my_colors) +
+    #scale_shape_manual(values = c(0,1,17,15)) + 
+    theme_bw()
+
+print(p)
+
+
+
+p <- ggplot(plt_data, aes(x = PC1, y = PC2, color = factor(HGPIN))) +
+    geom_point() +
+    scale_color_manual(values = my_colors) +
+    #scale_shape_manual(values = c(0,1,17,15)) + 
+    theme_bw()
+
+print(p)
+
+
+
+
+
+
+p <- ggplot(plt_data, aes(x = PC1, y = PC2, color = factor(NCCN.Risk.Group))) +
+    geom_point() +
+    scale_color_manual(values = my_colors) +
+    #scale_shape_manual(values = c(0,1,17,15)) + 
+    theme_bw()
+
+print(p)
+
+
+
+
+
+p <- ggplot(plt_data, aes(x = PC1, y = PC2, color = factor(Site.of.Primary))) +
+    geom_point() +
+    scale_color_manual(values = my_colors) +
+    #scale_shape_manual(values = c(0,1,17,15)) + 
+    theme_bw()
+
+print(p)
+
+
+
+
+
+p <- ggplot(plt_data, aes(x = PC1, y = PC2, color = factor(NCCN.Risk.Group.Subcategory))) +
+    geom_point() +
+    scale_color_manual(values = my_colors) +
+    #scale_shape_manual(values = c(0,1,17,15)) + 
+    theme_bw()
+
+print(p)
+
+```
+
+# normalizing for RNA-seq counts (raw data) 
+```{r}
+#batch <- c(design_table$batch)
+
+# loading the data
+load("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/EXCERPT_PIPELINE/excerpt_out/exceRpt_smallRNAQuants_ReadCounts.RData")
+total <- as.data.frame(rbind(exprs.miRNA,exprs.tRNA,exprs.piRNA,exprs.gencode))
+
+
+class(total)
+
+# loading packages
+library(edgeR)
+
+# sub-setting
+total_rna <- total[,20:74]
+
+
+# taking a glimpse of total_RNA
+head(total_rna)
+
+# printing column names for total RNA
+colnames(total_rna)
+
+# Create a DGEList object
+dge <- DGEList(counts = total_rna)
+
+# Perform TMM normalization
+dge <- calcNormFactors(dge)
+
+# Get normalized counts
+normalized_counts <- cpm(dge, normalized.lib.sizes = TRUE)
+
+
+# printing the normalized_counts data
+head(normalized_counts)
+
+
+
+# performing batch normalization using ComBat_seq
+adjusted_norm_count <- ComBat_seq(as.matrix(normalized_counts), batch=design_table$batch, group=NULL)
+
+
+
+head(adjusted_norm_count)
+
+
+
+# applying PCA to check if the normalization worked or not
+pca_result <- prcomp(as.matrix(t(adjusted_norm_count)))
+
+# Get the PCA scores for plotting
+pca_data <- as.data.frame(pca_result$x)
+ 
+rownames(pca_data) <- colnames(derf_output_df_normalized)
+
+# merging the batch information with the pca data
+plot_data <- merge(pca_data[,c(1,2)], design_table[,"batch",drop = FALSE], by = 0)
+rownames(plot_data) <- plot_data[,1]
+plot_data <- plot_data[,-1]
+
+
+my_colors <- c("green", "red", "blue")
+
+
+
+# plotting using ggplot
+p <- ggplot(plot_data, aes(x = PC1, y = PC2, color = factor(batch))) +
+     geom_point() +
+     scale_color_manual(values = my_colors) +
+     theme_bw()
+
+print(p)
+
+
+
+write.table(adjusted_norm_count,"adjusted_norm_count.csv",quote = F,sep  =",",col.names = T,row.names = T)
+```
+
+
+
+# diff expression analysis for various conditions
+```{r}
+
+design_table <- read.csv("design_template_prostate_v2.csv",sep=",",header = T,row.names = 1)
+
+
+
+# loading the data
+load("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/EXCERPT_PIPELINE/excerpt_out/exceRpt_smallRNAQuants_ReadCounts.RData")
+total <- as.data.frame(rbind(exprs.miRNA,exprs.tRNA,exprs.piRNA,exprs.gencode))
+# adding values to the count matrix
+
+total <- round(total, digits=0)
+
+
+
+#total <- as.data.frame(t(total))
+
+
+library(dplyr)
+
+
+design_table <- design_table %>%
+    mutate(NCCN.Risk.Group.Subcategory = trimws(NCCN.Risk.Group.Subcategory), # Remove leading and trailing whitespace
+         NCCN_risk_hig_low = ifelse(NCCN.Risk.Group.Subcategory %in% c("High Risk", "Very High Risk"),
+                             "High/Very High",
+                             NCCN.Risk.Group.Subcategory))
+
+
+
+
+```
+
+
+
+# loading packages for differential gene expression
+```{r}
+
+
+library(edgeR)
+library(RColorBrewer)
+library(pheatmap)
+library(viridis)
+
+```
+
+
+# differential gene expression for Cancer vs no cancer
+```{r}
+
+
+
+design_table$Cancer <- factor(design_table$Cancer, levels = c("No","Yes" ))
+design.matrix <- model.matrix(~ Cancer + Library.Batch..,data=design_table)
+
+
+
+DGEobj <- DGEList(counts=total,genes=row.names(total))
+  colors=as.factor(design_table$Cancer)
+
+
+
+DGEobj <- calcNormFactors(DGEobj,method = "TMM")
+pseudo_TMM <- log2(scale(DGEobj$counts,center=FALSE,scale=DGEobj$samples$norm.factors)+1)
+
+	
+keep <- which(rowSums(cpm(DGEobj)>1) >= length(design_table$Cancer)/2)
+DGEobj <- DGEobj[keep,]
+
+print(c("Genes after Filtering: ", dim(DGEobj$counts)[1]))
+
+
+
+
+
+
+
+
+
+DGEobj <- estimateGLMCommonDisp(DGEobj,design.matrix)
+DGEobj <- estimateGLMTrendedDisp(DGEobj,design.matrix)
+DGEobj <- estimateGLMTagwiseDisp(DGEobj,design.matrix)
+
+plotBCV(DGEobj, main = paste0("BCV plot"))
+
+
+
+
+fit <- glmFit(DGEobj,design.matrix)
+design.matrix
+
+#coef choose what coficient , in most cases coef=2 with simple designs, otherwise the coeficient and design will need to be adjusted. Model comparison is encouraged. 
+res <- glmLRT(fit,coef=2)
+#generates a table of DE results for all genes after filtering
+final <- topTags(res,n=nrow(DGEobj$counts))
+results <- final$table
+results <- results[order(rownames(results)),]
+head(results)
+hist(results$PValue)
+
+
+
+
+
+
+
+ncnts <- scale(DGEobj$counts,center=FALSE,scale=DGEobj$samples$norm.factors)
+ncnts <- ncnts[order(rownames(ncnts)),]
+results <- cbind(results, ncnts)
+write.table(results, paste("DGE_cancer_vs_no_cancer", "_Analysis.txt", sep = ""), sep = "\t")
+```
+
+
+# differential gene expression for Gleason score high / low
+```{r}
+
+colnames(total)  <- sub("_.*", "", colnames(total))
+
+columns_with_nas <- rownames(design_table[is.na(design_table$Gleason.Score),])
+
+total <- total[,!names(total) %in% columns_with_nas]
+
+
+
+
+
+design_table$Cancer <- factor(design_table$Gleason.Score, levels = c("Low?3+4","High?4+3" ))
+design.matrix <- model.matrix(~ Gleason.Score + Library.Batch..,data=design_table)
+
+
+
+DGEobj <- DGEList(counts=total,genes=row.names(total))
+  colors=as.factor(design_table$Gleason.Score)
+
+
+
+DGEobj <- calcNormFactors(DGEobj,method = "TMM")
+pseudo_TMM <- log2(scale(DGEobj$counts,center=FALSE,scale=DGEobj$samples$norm.factors)+1)
+
+	
+keep <- which(rowSums(cpm(DGEobj)>1) >= length(design_table$Gleason.Score)/2)
+DGEobj <- DGEobj[keep,]
+
+print(c("Genes after Filtering: ", dim(DGEobj$counts)[1]))
+
+
+
+
+
+DGEobj <- estimateGLMCommonDisp(DGEobj,design.matrix)
+DGEobj <- estimateGLMTrendedDisp(DGEobj,design.matrix)
+DGEobj <- estimateGLMTagwiseDisp(DGEobj,design.matrix)
+
+plotBCV(DGEobj, main = paste0("BCV plot"))
+
+
+
+
+fit <- glmFit(DGEobj,design.matrix)
+design.matrix
+
+#coef choose what coficient , in most cases coef=2 with simple designs, otherwise the coeficient and design will need to be adjusted. Model comparison is encouraged. 
+res <- glmLRT(fit,coef=2)
+#generates a table of DE results for all genes after filtering
+final <- topTags(res,n=nrow(DGEobj$counts))
+results <- final$table
+results <- results[order(rownames(results)),]
+head(results)
+hist(results$PValue)
+
+
+
+ncnts <- scale(DGEobj$counts,center=FALSE,scale=DGEobj$samples$norm.factors)
+ncnts <- ncnts[order(rownames(ncnts)),]
+results <- cbind(results, ncnts)
+
+
+```
+
+
+# differential gene expression for NCCN risk levels (low vs intermediate)
+```{r}
+
+load("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/EXCERPT_PIPELINE/excerpt_out/exceRpt_smallRNAQuants_ReadCounts.RData")
+total <- as.data.frame(rbind(exprs.miRNA,exprs.tRNA,exprs.piRNA,exprs.gencode))
+# adding values to the count matrix
+
+total <- round(total, digits=0)
+
+
+colnames(total)  <- sub("_.*", "", colnames(total))
+
+columns_with_nas <- rownames(design_table[is.na(design_table$NCCN_risk_hig_low),])
+
+total <- total[,!names(total) %in% columns_with_nas]
+
+
+design_table$Cancer <- factor(design_table$NCCN_risk_hig_low, levels = c("Low/Intermed Fav","Intermed Unfav","High/Very High" ))
+design.matrix <- model.matrix(~ NCCN_risk_hig_low + Library.Batch..,data=design_table)
+
+
+
+DGEobj <- DGEList(counts=total,genes=row.names(total))
+  colors=as.factor(design_table$NCCN_risk_hig_low)
+
+
+
+DGEobj <- calcNormFactors(DGEobj,method = "TMM")
+pseudo_TMM <- log2(scale(DGEobj$counts,center=FALSE,scale=DGEobj$samples$norm.factors)+1)
+
+	
+keep <- which(rowSums(cpm(DGEobj)>1) >= length(design_table$NCCN_risk_hig_low)/2)
+DGEobj <- DGEobj[keep,]
+
+print(c("Genes after Filtering: ", dim(DGEobj$counts)[1]))
+
+
+
+
+
+
+DGEobj <- estimateGLMCommonDisp(DGEobj,design.matrix)
+DGEobj <- estimateGLMTrendedDisp(DGEobj,design.matrix)
+DGEobj <- estimateGLMTagwiseDisp(DGEobj,design.matrix)
+
+plotBCV(DGEobj, main = paste0("BCV plot"))
+
+
+
+
+fit <- glmFit(DGEobj,design.matrix)
+design.matrix
+
+#coef choose what coficient , in most cases coef=2 with simple designs, otherwise the coeficient and design will need to be adjusted. Model comparison is encouraged. 
+res <- glmLRT(fit,coef=2)
+#generates a table of DE results for all genes after filtering
+final <- topTags(res,n=nrow(DGEobj$counts))
+results <- final$table
+results <- results[order(rownames(results)),]
+head(results)
+hist(results$PValue)
+
+
+
+ncnts <- scale(DGEobj$counts,center=FALSE,scale=DGEobj$samples$norm.factors)
+ncnts <- ncnts[order(rownames(ncnts)),]
+results <- cbind(results, ncnts)
+
+
+```
+
+
+
+# differential gene expression for NCCN risk levels (intermediate vs high)
+```{r}
+
+
+
+load("/mnt/acri7/ssrivastava/Prostate_EV_comboseq_2022/EXCERPT_PIPELINE/excerpt_out/exceRpt_smallRNAQuants_ReadCounts.RData")
+total <- as.data.frame(rbind(exprs.miRNA,exprs.tRNA,exprs.piRNA,exprs.gencode))
+# adding values to the count matrix
+
+total <- round(total, digits=0)
+
+
+colnames(total)  <- sub("_.*", "", colnames(total))
+
+columns_with_nas <- rownames(design_table[is.na(design_table$NCCN_risk_hig_low),])
+
+total <- total[,!names(total) %in% columns_with_nas]
+
+
+design_table$Cancer <- factor(design_table$NCCN_risk_hig_low, levels = c("Low/Intermed Fav","Intermed Unfav","High/Very High" ))
+design.matrix <- model.matrix(~ NCCN_risk_hig_low + Library.Batch..,data=design_table)
+
+
+
+DGEobj <- DGEList(counts=total,genes=row.names(total))
+  colors=as.factor(design_table$NCCN_risk_hig_low)
+
+
+
+DGEobj <- calcNormFactors(DGEobj,method = "TMM")
+pseudo_TMM <- log2(scale(DGEobj$counts,center=FALSE,scale=DGEobj$samples$norm.factors)+1)
+
+	
+keep <- which(rowSums(cpm(DGEobj)>1) >= length(design_table$NCCN_risk_hig_low)/2)
+DGEobj <- DGEobj[keep,]
+
+print(c("Genes after Filtering: ", dim(DGEobj$counts)[1]))
+
+
+
+
+
+
+
+
+
+DGEobj <- estimateGLMCommonDisp(DGEobj,design.matrix)
+DGEobj <- estimateGLMTrendedDisp(DGEobj,design.matrix)
+DGEobj <- estimateGLMTagwiseDisp(DGEobj,design.matrix)
+
+plotBCV(DGEobj, main = paste0("BCV plot"))
+
+
+
+
+fit <- glmFit(DGEobj,design.matrix)
+design.matrix
+
+#coef choose what coficient , in most cases coef=2 with simple designs, otherwise the coeficient and design will need to be adjusted. Model comparison is encouraged. 
+res <- glmLRT(fit,coef=3)
+#generates a table of DE results for all genes after filtering
+final <- topTags(res,n=nrow(DGEobj$counts))
+results <- final$table
+results <- results[order(rownames(results)),]
+head(results)
+hist(results$PValue)
+
+
+
+
+
+ncnts <- scale(DGEobj$counts,center=FALSE,scale=DGEobj$samples$norm.factors)
+ncnts <- ncnts[order(rownames(ncnts)),]
+results <- cbind(results, ncnts)
+```
+
+
+# clustering based on library batch, gleason score and NCCN_risk_hig_low  
+```{r}
+
+
+# merging the batch information with the pca data
+plot_data <- merge(pca_data[,c(1,2)], design_table, by = 0)
+rownames(plot_data) <- plot_data[,1]
+plot_data <- plot_data[,-1]
+
+my_colors <- c("green", "red", "blue")
+
+
+
+# plotting batch information using ggplot
+p <- ggplot(plot_data, aes(x = PC1, y = PC2, color = factor(Library.Batch..))) +
+     geom_point() +
+     scale_color_manual(values = my_colors) +
+     theme_bw()
+
+print(p)
+
+
+
+# plotting gleason score score using ggplot
+p <- ggplot(plot_data, aes(x = PC1, y = PC2, color = factor(Gleason.Score))) +
+     geom_point() +
+     scale_color_manual(values = my_colors) +
+     theme_bw()
+
+print(p)
+
+
+
+
+# plotting NCCN_risk score using ggplot
+p <- ggplot(plot_data, aes(x = PC1, y = PC2, color = factor(NCCN_risk_hig_low))) +
+     geom_point() +
+     scale_color_manual(values = my_colors) +
+     theme_bw()
+
+print(p)
+
+
+
+```

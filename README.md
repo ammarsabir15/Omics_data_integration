@@ -1,5 +1,5 @@
 # Using machine learning and bioinformatics methodologies for predicting tissue-of-origin, disease status, and therapeutic response in circulating extracellular vesicles from cancer patients
-This repository contains the code files that for analyzing the data coming from the aforementioned project at [Atlantic Cancer Research Institute](https://atlanticcancer.ca/en/ "Google's Homepage")
+This repository contains the code files for analyzing the data coming from the afore-mentioned project at [Atlantic Cancer Research Institute](https://atlanticcancer.ca/en/ "Google's Homepage")
 
 lung_cancer_cytokine_data.Rmd: Contains the code for analyzing cytokine data for analyzing the cytokine data obtained from Lung Cancer Patients
 
